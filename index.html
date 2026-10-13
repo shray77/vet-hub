@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ВетХаб — ситуационный центр vet-экосистемы</title>
+<meta name="description" content="Единая витрина экосистемы VetInSilico: метео-радар, хитмап заболеваний РФ, окна риска ВПГП и прогноз TimesFM 2.5. Агрегатор работает поверх готовых инструментов, данных своих не производит.">
+<meta property="og:title" content="ВетХаб — ситуационный центр vet-экосистемы">
+<meta property="og:description" content="Метео + хитмап + ВПГП + TimesFM в одном окне. Агрегация живых JSON-источников экосистемы.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://shray77.github.io/vet-hub/">
+<meta name="twitter:card" content="summary">
+<link rel="canonical" href="https://shray77.github.io/vet-hub/">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛰️</text></svg>">
+<link rel="stylesheet" href="vendor/leaflet.css">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0e14; --surface: #12161f; --surface2: #171c27; --border: #1f2530;
+    --text: #e8ecf3; --muted: #93a0b4; --faint: #5d6a7d;
+    --accent: #34d399; --accent-dim: rgba(52,211,153,.12);
+    --blue: #7dd3fc; --warn: #fbbf24; --err: #f87171;
+    --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  body { background: var(--bg); color: var(--text); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; margin: 0; }
+  a { color: var(--blue); text-decoration: none; } a:hover { text-decoration: underline; }
+  button { font: inherit; color: inherit; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 7px 14px; cursor: pointer; }
+  button:hover { border-color: #2c3543; }
+  select, input { font: inherit; color: var(--text); background: var(--surface2); border: 1px solid var(--border); border-radius: 9px; padding: 5px 9px; }
+
+  header.top { position: sticky; top: 0; z-index: 1200; background: linear-gradient(180deg, rgba(52,211,153,.07), rgba(11,14,20,.94) 70%); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
+  .trow { max-width: 1280px; margin: 0 auto; padding: 10px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 11px; }
+  .logo { width: 40px; height: 40px; border-radius: 11px; background: var(--accent-dim); border: 1px solid rgba(52,211,153,.35); display: grid; place-items: center; font-size: 20px; flex: none; }
+  .brand h1 { font-size: 17.5px; margin: 0; letter-spacing: -.02em; white-space: nowrap; }
+  .brand p { margin: 0; color: var(--faint); font-size: 11.5px; }
+  .srcs { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; font: 11.5px var(--mono); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 4px 10px; color: var(--muted); }
+  .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
+  .chip.ok .dot { background: var(--accent); box-shadow: 0 0 6px rgba(52,211,153,.7); }
+  .chip.err .dot { background: var(--err); box-shadow: 0 0 6px rgba(248,113,113,.7); }
+  .chip b { color: var(--text); font-weight: 600; }
+  #refreshBtn { padding: 6px 12px; border-radius: 999px; }
+  #refreshBtn.spin { animation: rot 1s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  #globalUpd { font: 11.5px var(--mono); color: var(--faint); }
+
+  nav.tabs { max-width: 1280px; margin: 0 auto; padding: 10px 18px 0; display: flex; gap: 6px; overflow-x: auto; }
+  nav.tabs button { border-radius: 11px 11px 0 0; border-bottom: none; background: var(--surface); color: var(--muted); padding: 9px 16px; white-space: nowrap; }
+  nav.tabs button.on { background: var(--surface2); color: var(--text); border-color: #2c3543; box-shadow: inset 0 2px 0 var(--accent); }
+
+  main { max-width: 1280px; margin: 0 auto; padding: 14px 18px 30px; }
+  .pane { display: none; } .pane.on { display: block; }
+  .note { color: var(--faint); font: 12px var(--mono); margin: 4px 0 12px; }
+
+  /* ── Сводка ── */
+  .kgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; min-width: 0; }
+  .card h3 { margin: 0 0 8px; font-size: 11.5px; text-transform: uppercase; letter-spacing: .09em; color: var(--faint); display: flex; align-items: center; gap: 8px; }
+  .card h3 .src { margin-left: auto; font: 10.5px var(--mono); color: var(--faint); text-transform: none; letter-spacing: 0; }
+  .big { font: 600 30px/1.1 var(--mono); letter-spacing: -.02em; }
+  .big small { font-size: 14px; color: var(--muted); font-weight: 400; }
+  .sub { color: var(--muted); font-size: 12.5px; margin-top: 5px; }
+  .lv { display: inline-block; border-radius: 7px; padding: 2px 9px; font: 600 11.5px var(--mono); }
+  .lv.ok { background: rgba(52,211,153,.14); color: var(--accent); }
+  .lv.watch { background: rgba(251,191,36,.14); color: var(--warn); }
+  .lv.alert { background: rgba(248,113,113,.16); color: var(--err); }
+  .lv.na { background: var(--surface2); color: var(--muted); }
+  .fwrow { display: flex; align-items: center; gap: 8px; padding: 4.5px 0; border-top: 1px dashed var(--border); font-size: 12.5px; }
+  .fwrow:first-of-type { border-top: none; }
+  .fwdot { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+  .fwname { color: var(--muted); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fwr { font: 600 15px var(--mono); }
+  .fwchan { font: 10.5px var(--mono); color: var(--faint); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; }
+  .vrow { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; font-size: 12.5px; border-top: 1px dashed var(--border); }
+  .vrow:first-of-type { border-top: none; }
+  .vrow .lbl { color: var(--muted); }
+  .vrow .val { font-family: var(--mono); }
+  .twocol { display: grid; grid-template-columns: 1fr 380px; gap: 12px; margin-top: 12px; align-items: start; }
+  table.feed { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.feed th { text-align: left; color: var(--faint); font: 600 10.5px var(--mono); text-transform: uppercase; letter-spacing: .07em; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  table.feed td { padding: 6.5px 8px; border-bottom: 1px solid rgba(31,37,48,.55); vertical-align: top; }
+  table.feed td.d { font-family: var(--mono); white-space: nowrap; color: var(--muted); }
+  table.feed tr:hover td { background: rgba(23,28,39,.6); }
+  .st { border-radius: 6px; padding: 1px 7px; font: 10.5px var(--mono); white-space: nowrap; }
+  .st.on { background: rgba(248,113,113,.15); color: var(--err); }
+  .st.res { background: var(--surface2); color: var(--faint); }
+  .skeleton { color: var(--faint); font: 12px var(--mono); padding: 10px 2px; animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .45; } }
+
+  /* ── Карта ── */
+  .mapbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 9px; font-size: 12.5px; color: var(--muted); }
+  .mapbar label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; border: 1px solid var(--border); background: var(--surface); border-radius: 9px; padding: 5px 10px; }
+  .mapbar label input { accent-color: var(--accent); }
+  .mapbar .cnt { font: 11px var(--mono); color: var(--faint); }
+  #map { height: min(72vh, 720px); border-radius: 14px; border: 1px solid var(--border); background: var(--surface); z-index: 1; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font: 11.5px var(--mono); color: var(--muted); margin-top: 9px; }
+  .legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: #151a24; color: var(--text); border: 1px solid #2a3342; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+  .leaflet-popup-content { font: 12px/1.5 var(--mono); margin: 10px 13px; }
+  .leaflet-popup-content b { color: #fff; }
+  .leaflet-popup-content .ph { color: var(--warn); }
+  .leaflet-container a.leaflet-popup-close-button { color: var(--faint); }
+  .leaflet-control-attribution { background: rgba(11,14,20,.8) !important; color: var(--faint) !important; }
+  .leaflet-control-attribution a { color: var(--muted) !important; }
+
+  /* ── Прогноз ── */
+  .vgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .verdict { border-radius: 14px; padding: 13px 16px; border: 1px solid var(--border); background: var(--surface); }
+  .verdict.good { border-color: rgba(52,211,153,.4); background: linear-gradient(180deg, rgba(52,211,153,.07), var(--surface) 65%); }
+  .verdict.mid { border-color: rgba(251,191,36,.4); background: linear-gradient(180deg, rgba(251,191,36,.07), var(--surface) 65%); }
+  .verdict h4 { margin: 0 0 5px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); }
+  .verdict .tx { font-size: 13.5px; }
+  .verdict .mx { font: 11px var(--mono); color: var(--faint); margin-top: 6px; }
+  .fcbar { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 12px; }
+  .fcbar button { border-radius: 999px; padding: 6px 13px; font-size: 12.5px; color: var(--muted); }
+  .fcbar button.on { color: var(--text); border-color: rgba(52,211,153,.5); background: var(--accent-dim); }
+  .fcwrap { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; height: 380px; position: relative; }
+  #fcChart { width: 100% !important; height: 100% !important; }
+  table.fct { width: 100%; border-collapse: collapse; font: 12.5px var(--mono); margin-top: 12px; }
+  table.fct th { text-align: left; color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; padding: 6px 8px; border-bottom: 1px solid var(--border); font-family: inherit; }
+  table.fct td { padding: 6.5px 8px; border-bottom: 1px solid rgba(31,37,48,.55); }
+  .fcnote { color: var(--faint); font-size: 12px; margin-top: 12px; }
+  .fcnote b { color: var(--muted); }
+
+  /* ── Инструменты ── */
+  .tgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .tool { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 15px 17px; min-width: 0; }
+  .tool h3 { margin: 0 0 6px; font-size: 15.5px; display: flex; align-items: center; gap: 9px; }
+  .tool p { margin: 4px 0 10px; color: var(--muted); font-size: 13px; }
+  .tool .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .tool iframe { width: 100%; height: 560px; border: 1px solid var(--border); border-radius: 11px; margin-top: 11px; background: var(--bg); }
+
+  footer { border-top: 1px solid var(--border); margin-top: 26px; }
+  .foot { max-width: 1280px; margin: 0 auto; padding: 16px 18px 26px; display: flex; gap: 8px 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--faint); }
+  .foot .legal { color: var(--warn); }
+  .foot a { color: var(--muted); }
+  .foot a:hover { color: var(--accent); }
+  .hubchips { display: flex; gap: 6px; flex-wrap: wrap; width: 100%; font: 11.5px var(--mono); }
+  .hubchips a { border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 4px 11px; }
+  .hubchips a.on { color: var(--accent); border-color: rgba(52,211,153,.45); background: var(--accent-dim); }
+
+  @media (max-width: 980px) {
+    .kgrid { grid-template-columns: 1fr 1fr; }
+    .twocol, .vgrid, .tgrid { grid-template-columns: 1fr; }
+    #map { height: 62vh; }
+  }
+  @media (max-width: 620px) {
+    .kgrid { grid-template-columns: 1fr; }
+    .trow { padding: 9px 12px; gap: 9px; }
+    main { padding: 12px 12px 24px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="trow">
+    <div class="brand">
+      <div class="logo">🛰️</div>
+      <div>
+        <h1>ВЕТХАБ · ситуационный центр</h1>
+        <p>метео · хитмап · ВПГП · TimesFM — всё в одном окне</p>
+      </div>
+    </div>
+    <div class="srcs" id="srcChips"></div>
+    <span id="globalUpd"></span>
+    <button id="refreshBtn" title="Обновить все источники">↻ обновить</button>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="overview" class="on">◧ Сводка</button>
+  <button data-tab="map">🗺 Карта</button>
+  <button data-tab="forecast">📈 Прогноз TimesFM</button>
+  <button data-tab="tools">🧰 Инструменты</button>
+</nav>
+
+<main>
+
+  <!-- ═══ СВОДКА ═══ -->
+  <section class="pane on" id="pane-overview">
+    <p class="note">агрегатор живых JSON-источников экосистемы · данных своих не производит · автообновление 5 мин</p>
+    <div class="kgrid">
+      <div class="card" id="c-meteo"><h3>Метео · Ростовская обл.<span class="src">vet-meteo</span></h3><div class="skeleton">загрузка…</div></div>
+      <div class="card" id="c-brd"><h3>Респираторный индекс BRD<span class="src">vet-meteo</span></h3><div class="skeleton">загрузка…</div></div>
+      <div class="card" id="c-flu"><h3>ВПГП · окна риска<span class="src">vetflu-site</span></h3><div class="skeleton">загрузка…</div></div>
+      <div class="card" id="c-heat"><h3>Заболевания РФ · хитмап<span class="src">vet-heatmap</span></h3><div class="skeleton">загрузка…</div></div>
+      <div class="card" id="c-fc"><h3>Прогноз TimesFM 2.5 · ВПГП<span class="src">vetflu-forecast</span></h3><div class="skeleton">загрузка…</div></div>
+      <div class="card" id="c-retro"><h3>Ретроспектива модели<span class="src">vetflu-forecast</span></h3><div class="skeleton">загрузка…</div></div>
+    </div>
+    <div class="twocol">
+      <div class="card">
+        <h3>Свежие события · хитмап<span class="src" id="feedSrc"></span></h3>
+        <div class="skeleton" id="feedBody">загрузка…</div>
+      </div>
+      <div class="card">
+        <h3>Состояние источников</h3>
+        <div id="srcTable" class="skeleton">загрузка…</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ КАРТА ═══ -->
+  <section class="pane" id="pane-map">
+    <div class="mapbar">
+      <label><input type="checkbox" id="lyHeat" checked> Вспышки РФ (хитмап)</label>
+      <label><input type="checkbox" id="lyFlu" checked> Флайвеи и узлы ВПГП</label>
+      <label><input type="checkbox" id="lyMeteo" checked> Станции THI</label>
+      <span>период вспышек:</span>
+      <select id="heatPeriod">
+        <option value="30">30 дней</option>
+        <option value="90" selected>90 дней</option>
+        <option value="365">год</option>
+        <option value="99999">всё</option>
+      </select>
+      <span class="cnt" id="heatCnt"></span>
+    </div>
+    <div id="map"></div>
+    <div class="legend" id="legend">
+      <span><span class="sw" style="background:#f87171"></span>ВПГП / птицы</span>
+      <span><span class="sw" style="background:#93c5fd"></span>КРС / жвачные</span>
+      <span><span class="sw" style="background:#f472b6"></span>свиньи</span>
+      <span><span class="sw" style="background:#9ca3af"></span>прочие</span>
+      <span style="margin-left:auto">THI / R:</span>
+      <span><span class="sw" style="background:#34d399"></span>&lt;68 · норма</span>
+      <span><span class="sw" style="background:#fbbf24"></span>68–75 · умеренно</span>
+      <span><span class="sw" style="background:#fb923c"></span>75–80 · стресс</span>
+      <span><span class="sw" style="background:#f87171"></span>&gt;80 · опасно</span>
+    </div>
+  </section>
+
+  <!-- ═══ ПРОГНОЗ ═══ -->
+  <section class="pane" id="pane-forecast">
+    <div class="vgrid" id="verdicts"></div>
+    <div class="fcbar" id="fcBar"></div>
+    <div class="fcwrap"><canvas id="fcChart"></canvas></div>
+    <div id="fcTable"></div>
+    <p class="fcnote" id="fcNote"></p>
+  </section>
+
+  <!-- ═══ ИНСТРУМЕНТЫ ═══ -->
+  <section class="pane" id="pane-tools">
+    <p class="note">хаб — витрина поверх инструментов: каждый тул живёт своей жизнью, здесь его предпросмотр и быстрые ссылки</p>
+    <div class="tgrid">
+      <div class="tool">
+        <h3>🌪️ ВетМетео · ВетРадар-61 <a class="lv na" href="https://github.com/shray77/vet-meteo" target="_blank" rel="noopener">repo</a></h3>
+        <p>16 станций Ростовской области, THI/THIadj/HLI, КГЛ и фасциолёз, АЧС-коридор и аэрозоль-плюм, ансамбль ECMWF, эпиднадзор EARS/Rt, почасовой скраббер 0–167 ч.</p>
+        <div class="btns"><a class="lv ok" href="https://shray77.github.io/vet-meteo/" target="_blank" rel="noopener">открыть ↗</a><button data-embed="https://shray77.github.io/vet-meteo/">предпросмотр</button></div>
+      </div>
+      <div class="tool">
+        <h3>🗺️ ВетКарта · хитмап <a class="lv na" href="https://github.com/shray77/vet-heatmap" target="_blank" rel="noopener">repo</a></h3>
+        <p>Интерактивная карта заболеваний по регионам РФ: WAHIS + скрейпинг ФСВПС 4×/день, фильтры по болезням и периодам, эпи-кривые, Rt, симуляторы, PWA.</p>
+        <div class="btns"><a class="lv ok" href="https://shray77.github.io/vet-heatmap/" target="_blank" rel="noopener">открыть ↗</a><button data-embed="https://shray77.github.io/vet-heatmap/">предпросмотр</button></div>
+      </div>
+      <div class="tool">
+        <h3>🦆 ВетФлю · окна риска ВПГП <a class="lv na" href="https://github.com/shray77/vetflu-site" target="_blank" rel="noopener">repo</a></h3>
+        <p>Индекс R по 4 флайвеям и 16 узлам: миграционные каналы M/C/Z, живые множители погоды и фона вспышек, скраббер 52 недель, бэктест, RSS.</p>
+        <div class="btns"><a class="lv ok" href="https://shray77.github.io/vetflu-site/" target="_blank" rel="noopener">открыть ↗</a><button data-embed="https://shray77.github.io/vetflu-site/">предпросмотр</button></div>
+      </div>
+      <div class="tool">
+        <h3>🤖 TimesFM 2.5 · прогноз <a class="lv na" href="https://github.com/shray77/vetflu-forecast" target="_blank" rel="noopener">repo</a></h3>
+        <p>Foundation-модель Google (200M, Apache-2.0) на GitHub Actions: недельный прогноз событий ВПГП +4 нед, кэш весов, ретроспектива против бейзлайнов.</p>
+        <div class="btns"><a class="lv ok" href="https://shray77.github.io/vetflu-forecast/" target="_blank" rel="noopener">открыть ↗</a><button data-embed="https://shray77.github.io/vetflu-forecast/">предпросмотр</button></div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="foot">
+    <span class="legal">агрегатор · не ветеринарный совет · <a href="./terms.html">условия и дисклеймер</a></span>
+    <span>источники — JSON сервисов экосистемы (CORS *), модель TimesFM крутится в <a href="https://github.com/shray77/vetflu-forecast">отдельном воркере</a></span>
+    <div class="hubchips">
+      <a href="https://shray77.github.io/" > VetInSilico</a>
+      <a href="https://shray77.github.io/vet-meteo/">🌪️ ВетМетео</a>
+      <a href="https://shray77.github.io/vet-heatmap/">🗺️ ВетКарта</a>
+      <a href="https://shray77.github.io/vetflu-site/">🦆 ВетФлю</a>
+      <a href="https://shray77.github.io/vetflu-forecast/">🤖 TimesFM</a>
+      <a href="https://shray77.github.io/vet-heatmap/" >🩺 VetEpi</a>
+      <a class="on" href="https://shray77.github.io/vet-hub/">🛰️ ВетХаб</a>
+    </div>
+  </div>
+</footer>
+
+<script src="vendor/leaflet.js"></script>
+<script src="vendor/chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
