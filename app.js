@@ -103,7 +103,7 @@ function renderMeteo() {
   const stc = st.filter(s => s.cci != null);
   let cciLine = '';
   if (stc.length) {
-    const cworst = stc.reduce((a, b) => (Math.abs(b.cci - 10) > Math.abs(a.cci - 10) ? b : a));
+    const cciworst = stc.reduce((a, b) => (Math.abs(b.cci - 10) > Math.abs(a.cci - 10) ? b : a));
     const z = cciZone(cciworst.cci);
     const out = stc.filter(s => (s.cci >= 30 || s.cci <= -10)).length;
     cciLine = `<div class="sub">CCI <b style="color:${rampCci(cciworst.cci)}">${cciworst.cci > 0 ? '+' : ''}${cciworst.cci.toFixed(1)}°C</b> · ${esc(cciworst.name)} <span class="lv ${z.cls}">${z.tx}</span> · вне комфорта: <b>${out}/${stc.length}</b></div>`;
