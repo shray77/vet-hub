@@ -16,23 +16,25 @@ KPI-сводка, общая карта со слоями, панель прог
 
 | Источник | Что даёт | JSON |
 |---|---|---|
-| [vet-meteo](https://shray77.github.io/vet-meteo/) | THI/THIadj/BRD по 16 станциям Ростовской обл. | `raw.githubusercontent.com/shray77/vet-meteo/main/data/latest.json` |
+| [vet-meteo](https://shray77.github.io/vet-meteo/) | THI/THIadj/BRD по 49 станциям Ростовской обл. | `raw.githubusercontent.com/shray77/vet-meteo/main/data/latest.json` |
 | [vet-heatmap](https://shray77.github.io/vet-heatmap/) | заболевания по регионам РФ (WAHIS + ФСВПС, 2700+ событий) | `shray77.github.io/vet-heatmap/data/outbreaks.json` |
 | [vetflu-site](https://shray77.github.io/vetflu-site/) | индекс R заноса ВПГП по 4 флайвеям и 16 узлам | `shray77.github.io/vetflu-site/data/model.json` |
 | [vetflu-forecast](https://shray77.github.io/vetflu-forecast/) | прогноз TimesFM 2.5 (+4 нед, q10–q90) и ретроспектива | `shray77.github.io/vetflu-forecast/data/forecast.json`, `retrospective.json` |
+| [vet-pilots](https://github.com/shray77/vet-pilots) | TSPulse — аномалии вспышек недели (z-скор, перцентиль) | `raw.githubusercontent.com/shray77/vet-pilots/main/tspulse/latest.json` |
 
 ## Что внутри
 
-- **Сводка** — 6 KPI-карт (THI-стресс, BRD, R-индекс флайвеев с каналом-победителем,
-  события за 30 дней, прогноз TimesFM с коридором, вердикты ретроспективы) + лента
-  свежих событий + таблица состояния источников.
+- **Сводка** — 7 KPI-карт (THI-стресс, BRD, R-индекс флайвеев с каналом-победителем,
+  события за 30 дней, прогноз TimesFM с коридором, вердикты ретроспективы,
+  аномалия недели TSPulse) + лента свежих событий + таблица состояния источников.
 - **Карта** — Leaflet (вендор, без CDN — открывается из РФ): слой вспышек РФ с фильтром
   периода (30/90/365/всё), слой флайвеев (пути из `model.json` + узлы, размер ∝ R),
   слой станций THI. Тёмная подложка Esri (без ключей), попапы с первоисточником.
 - **Прогноз TimesFM** — выбор ряда (мир + 4 флайвея), факт 52 недели + пунктир прогноза
   + плашка q10–q90 (Chart.js, вендор), таблица по горизонтам, честные вердикты
   ретроспективы: M4 Weekly — польза (−32% MASE против drift), сырые счётчики WAHIS — паритет.
-- **Инструменты** — карточки с предпросмотром (lazy iframe) и ссылками на все четыре тула.
+- **Инструменты** — карточки с предпросмотром (lazy iframe) и ссылками на пять тулов
+  (включая аудио-дайджест vet-digest-llm).
 - Автообновление 5 минут, независимые статусы источников, timeout 20 c, деградация без падения.
 
 ## Запуск

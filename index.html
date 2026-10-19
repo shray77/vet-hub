@@ -66,7 +66,9 @@
   .sub { color: var(--muted); font-size: 12.5px; margin-top: 5px; }
   .lv { display: inline-block; border-radius: 7px; padding: 2px 9px; font: 600 11.5px var(--mono); }
   .lv.ok { background: rgba(52,211,153,.14); color: var(--accent); }
+  .lv.mild { background: rgba(168,184,69,.16); color: #b9c86a; }
   .lv.watch { background: rgba(251,191,36,.14); color: var(--warn); }
+  .lv.stress { background: rgba(217,95,43,.16); color: #e0762f; }
   .lv.alert { background: rgba(248,113,113,.16); color: var(--err); }
   .lv.na { background: var(--surface2); color: var(--muted); }
   .fwrow { display: flex; align-items: center; gap: 8px; padding: 4.5px 0; border-top: 1px dashed var(--border); font-size: 12.5px; }
@@ -226,11 +228,12 @@
       <span><span class="sw" style="background:#93c5fd"></span>КРС / жвачные</span>
       <span><span class="sw" style="background:#f472b6"></span>свиньи</span>
       <span><span class="sw" style="background:#9ca3af"></span>прочие</span>
-      <span style="margin-left:auto">THI / R:</span>
-      <span><span class="sw" style="background:#34d399"></span>&lt;68 · норма</span>
-      <span><span class="sw" style="background:#fbbf24"></span>68–75 · умеренно</span>
-      <span><span class="sw" style="background:#fb923c"></span>75–80 · стресс</span>
-      <span><span class="sw" style="background:#f87171"></span>&gt;80 · опасно</span>
+      <span style="margin-left:auto">THI:</span>
+      <span><span class="sw" style="background:#5f9e5f"></span>&lt;68 · нет стресса</span>
+      <span><span class="sw" style="background:#a8b845"></span>68–72 · лёгкий</span>
+      <span><span class="sw" style="background:#e0a636"></span>72–80 · умеренный</span>
+      <span><span class="sw" style="background:#d95f2b"></span>80–90 · тяжёлый</span>
+      <span><span class="sw" style="background:#c0392b"></span>≥90 · критический</span>
     </div>
   </section>
 
@@ -296,6 +299,6 @@
 
 <script src="vendor/leaflet.js"></script>
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=20261015"></script>
+<script src="app.js?v=20261020"></script>
 </body>
 </html>

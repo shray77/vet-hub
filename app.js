@@ -31,7 +31,16 @@ const fmtMsk = (iso) => {
   } catch { return iso; }
 };
 const rampR = (v) => v >= 75 ? '#f87171' : v >= 45 ? '#fbbf24' : '#34d399';
-const rampThi = (v) => v >= 80 ? '#f87171' : v >= 75 ? '#fb923c' : v >= 68 ? '#fbbf24' : '#34d399';
+/* THI-шкала синхронизирована с витриной vet-meteo (StationColor.ts): 68/72/80/90,
+   цвета байт-в-байт те же — обе карты читаются одинаково. */
+const rampThi = (v) => v == null || !Number.isFinite(v) ? '#8a8a6a' : v < 68 ? '#5f9e5f' : v < 72 ? '#a8b845' : v < 80 ? '#e0a636' : v < 90 ? '#d95f2b' : '#c0392b';
+/* Метки THI — как в thi.ts vet-meteo (нет стресса/лёгкий/умеренный/тяжёлый/критический). */
+const thiLevel = (v) => v == null || !Number.isFinite(v) ? '<span class="lv na">—</span>' :
+  v < 68 ? '<span class="lv ok">нет стресса</span>' :
+  v < 72 ? '<span class="lv mild">лёгкий</span>' :
+  v < 80 ? '<span class="lv watch">умеренный</span>' :
+  v < 90 ? '<span class="lv stress">тяжёлый</span>' :
+  '<span class="lv alert">критический</span>';
 /* CCI (Comprehensive Climate Index, Mader 2010 err. 2011) — комфорт в °C: -10..30 термонейтрально,
    >=30 жара-осторожно, >=40 опасная жара, <=-10 холод-осторожно, <=-30 опасный холод (OK Mesonet 2016) */
 const cciZone = (v) => v == null ? null :
@@ -97,8 +106,9 @@ function renderMeteo() {
   const st = S.meteo.stations;
   const mx = st.reduce((a, b) => (b.thi > a.thi ? b : a));
   const n72 = st.filter(s => s.thi >= 72).length;
-  const tmin = Math.min(...st.map(s => s.t)), tmax = Math.max(...st.map(s => s.t));
-  const lv = mx.thi >= 80 ? '<span class="lv alert">опасно</span>' : mx.thi >= 72 ? '<span class="lv watch">стресс</span>' : mx.thi >= 68 ? '<span class="lv watch">умеренно</span>' : '<span class="lv ok">норма</span>';
+  const tvals = st.map(s => s.t).filter(Number.isFinite);
+  const tmin = tvals.length ? Math.min(...tvals) : null, tmax = tvals.length ? Math.max(...tvals) : null;
+  const lv = thiLevel(mx.thi);
   /* CCI: станция с максимальным отклонением от термонейтральной зоны */
   const stc = st.filter(s => s.cci != null);
   let cciLine = '';
@@ -110,7 +120,7 @@ function renderMeteo() {
   }
   el.innerHTML = `<h3>Метео · Ростовская обл.<span class="src">vet-meteo</span></h3>
     <div class="big">${mx.thi.toFixed(0)} <small>THI max · ${esc(mx.name)}</small></div>
-    <div class="sub">${lv} · станций THI≥72: <b>${n72}/${st.length}</b> · t ${tmin.toFixed(0)}…${tmax.toFixed(0)}°C</div>
+    <div class="sub">${lv} · станций THI≥72: <b>${n72}/${st.length}</b> · t ${tmin == null ? '—' : tmin.toFixed(0)}…${tmax == null ? '—' : tmax.toFixed(0)}°C</div>
     ${cciLine}
     <div class="sub" style="color:var(--faint)">срез ${fmtMsk(S.meteo.generatedAt)} МСК</div>`;
 }
@@ -240,7 +250,6 @@ function renderSrcTable() {
 
 let map = null, mapInited = false;
 const layers = { heat: null, flu: null, meteo: null };
-let heatMarkers = [];
 
 function initMap() {
   if (mapInited) return;
@@ -272,7 +281,7 @@ function refreshMapLayers() {
 }
 
 function updateHeatLayer() {
-  layers.heat.clearLayers(); heatMarkers = [];
+  layers.heat.clearLayers();
   const obs = S.heat?.outbreaks || [];
   const days = +$('heatPeriod').value;
   const cutoff = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
@@ -287,7 +296,6 @@ function updateHeatLayer() {
     });
     m.bindPopup(`<b>${esc(o.disease)}</b><br>${esc(o.region || '')} · ${esc(o.federal_district || '')}<br>${fmtD(o.date)} · ${o.status === 'Ongoing' ? '<span class="ph">активна</span>' : 'завершена'}<br>источник: ${esc(o.source || '')}${o.source_url ? ` · <a href="${esc(o.source_url)}" target="_blank" rel="noopener">событие ↗</a>` : ''}`);
     m.addTo(layers.heat);
-    heatMarkers.push(m);
   });
   $('heatCnt').textContent = `показано ${n} из ${obs.length}`;
 }
@@ -324,9 +332,9 @@ function updateMeteoLayer() {
     if (s.lat == null) return;
     L.circleMarker([s.lat, s.lon], {
       radius: 6.5, color: '#0b0e14', weight: 1.5, fillColor: rampThi(s.thi), fillOpacity: .9
-    }).bindPopup(`<b>${esc(s.name)}</b><br>t=${s.t}°C · RH=${s.rh}% · ветер ${s.wind} м/с<br>
-      THI=<b>${s.thi}</b> · THIadj=${s.thiAdj ?? '—'}<br>THI max 7д: ${s.thiMax7 ?? '—'} · BRD=${s.brd ?? '—'}<br>
-      CCI=<b style="color:${rampCci(s.cci)}">${s.cci ?? '—'}</b> · ${esc(cciZone(s.cci)?.tx || '—')}<br>
+    }).bindPopup(`<b>${esc(s.name)}</b><br>t=${esc(s.t ?? '—')}°C · RH=${esc(s.rh ?? '—')}% · ветер ${esc(s.wind ?? '—')} м/с<br>
+      THI=<b>${esc(s.thi ?? '—')}</b> · THIadj=${esc(s.thiAdj ?? '—')}<br>THI max 7д: ${esc(s.thiMax7 ?? '—')} · BRD=${esc(s.brd ?? '—')}<br>
+      CCI=<b style="color:${rampCci(s.cci)}">${esc(s.cci ?? '—')}</b> · ${esc(cciZone(s.cci)?.tx || '—')}<br>
       <span style="color:var(--faint)">${esc(s.source || '')}</span>`).addTo(layers.meteo);
   });
 }
