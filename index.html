@@ -17,7 +17,7 @@
   :root {
     color-scheme: dark;
     --bg: #0b0e14; --surface: #12161f; --surface2: #171c27; --border: #1f2530;
-    --text: #e8ecf3; --muted: #93a0b4; --faint: #5d6a7d;
+    --text: #e8ecf3; --muted: #93a0b4; --faint: #7e8899;
     --accent: #34d399; --accent-dim: rgba(52,211,153,.12);
     --blue: #7dd3fc; --warn: #fbbf24; --err: #f87171;
     --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
@@ -87,6 +87,9 @@
   table.feed td { padding: 6.5px 8px; border-bottom: 1px solid rgba(31,37,48,.55); vertical-align: top; }
   table.feed td.d { font-family: var(--mono); white-space: nowrap; color: var(--muted); }
   table.feed tr:hover td { background: rgba(23,28,39,.6); }
+  /* тач-зона ↗-ссылки источника: визуально та же стрелка, попадание пальцем — ~27px */
+  table.feed td a[target="_blank"] { display: inline-block; padding: 7px 8px; margin: -7px -4px; border-radius: 6px; }
+  table.feed td a[target="_blank"]:hover { background: rgba(56,189,248,.12); }
   .st { border-radius: 6px; padding: 1px 7px; font: 10.5px var(--mono); white-space: nowrap; }
   .st.on { background: rgba(248,113,113,.15); color: var(--err); }
   .st.res { background: var(--surface2); color: var(--faint); }

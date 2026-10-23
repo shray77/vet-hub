@@ -402,7 +402,7 @@ function showSeries(key) {
         tooltip: { callbacks: { title: it => 'нед. ' + it[0].label } }
       },
       scales: {
-        x: { ticks: { color: '#5d6a7d', maxTicksLimit: 11, font: { size: 10 } }, grid: { color: 'rgba(255,255,255,.045)' } },
+        x: { ticks: { color: '#7e8899', maxTicksLimit: 11, font: { size: 10 } }, grid: { color: 'rgba(255,255,255,.045)' } },
         y: { ticks: { color: '#93a0b4', font: { size: 11 } }, grid: { color: 'rgba(255,255,255,.045)' } }
       }
     }
