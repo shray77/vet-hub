@@ -174,8 +174,17 @@
   }
   @media (max-width: 620px) {
     .kgrid { grid-template-columns: 1fr; }
-    .trow { padding: 9px 12px; gap: 9px; }
+    .trow { padding: 8px 12px; gap: 8px; }
     main { padding: 12px 12px 24px; }
+    /* мобильная компакция (Task 165): sticky-хедер не жуёт экран */
+    .logo { width: 30px; height: 30px; border-radius: 8px; }
+    .logo svg { width: 17px; height: 17px; }
+    .brand h1 { font-size: 16.5px; }
+    .brand p { display: none; }
+    .srcs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; -webkit-overflow-scrolling: touch; max-width: 100%; }
+    .srcs::-webkit-scrollbar { display: none; }
+    .srcs > * { flex: none; white-space: nowrap; }
+    #refreshBtn { padding: 6px 10px; }
   }
 </style>
 <style>/* vet-ds v2.1: тоггл темы с подписью — виден среди метаданных */
