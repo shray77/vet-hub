@@ -145,7 +145,7 @@ function renderMeteo() {
   }
   el.innerHTML = `<h3>Метео · Ростовская обл.<span class="src">vet-meteo</span></h3>
     <div class="big">${fmtNum(mx.thi, 0)} <small>THI max · ${esc(mx.name)}</small></div>
-    <div class="sub">${lv} · станций THI≥72: <b>${n72}/${all.length}</b> · t ${tmin == null ? '—' : fmtNum(tmin, 0)}–${tmax == null ? '—' : fmtNum(tmax, 0)}°C</div>
+    <div class="sub">${lv} · станций THI≥72: <b>${n72}/${all.length}</b> · t ${tmin == null ? '—' : fmtNum(tmin, 0)}–${tmax == null ? '—' : fmtNum(tmax, 0)}\u00A0°C</div>
     ${cciLine}
     <div class="sub" style="color:var(--faint)">срез ${fmtMsk(S.meteo.generatedAt)} МСК</div>`;
 }
@@ -317,7 +317,7 @@ function updateHeatLayer() {
   const colByGroup = { Birds: '#f87171', Ruminant: '#93c5fd', Swine: '#f472b6' };
   let n = 0;
   [...obs].sort((a, b) => (a.date || '').localeCompare(b.date || '')).forEach(o => {
-    if (!o.lat || !o.lon || (o.date || '') < cutoff) return;
+    if (o.lat == null || o.lon == null || (o.date || '') < cutoff) return; /* симметричный гвард: нулевая широта валидна, Leaflet не получает undefined */
     n++;
     const c = colByGroup[o.disease_group] || '#9ca3af';
     const u = safeUrl(o.source_url);
@@ -327,7 +327,8 @@ function updateHeatLayer() {
     m.bindPopup(`<b>${esc(o.disease)}</b><br>${esc(o.region || '')} · ${esc(o.federal_district || '')}<br>${fmtD(o.date)} · ${o.status === 'Ongoing' ? '<span class="ph">активна</span>' : 'завершена'}<br>источник: ${esc(o.source || '')}${u ? ` · <a href="${esc(u)}" target="_blank" rel="noopener">событие ↗</a>` : ''}`);
     m.addTo(layers.heat);
   });
-  $('heatCnt').textContent = `показано ${n} из ${fmtNum(obs.length, 0)}`;
+  /* счётчик имеет смысл только при видимом слое вспышек (снятый чекбокс — не врём «показано») */
+  $('heatCnt').textContent = map.hasLayer(layers.heat) ? `показано ${n} из ${fmtNum(obs.length, 0)}` : '';
 }
 
 function updateFluLayer() {
@@ -342,7 +343,7 @@ function updateFluLayer() {
     }
     const nodes = S.flu.nodes?.[fw.id] || [];
     nodes.forEach(nd => {
-      if (nd.lat == null) return;
+      if (nd.lat == null || nd.lon == null) return;
       const r = Number.isFinite(nd.r) ? nd.r : 0;
       L.circleMarker([nd.lat, nd.lon], {
         radius: 5 + r / 9, color: '#0b0e14', weight: 1.6,
@@ -359,7 +360,7 @@ function updateMeteoLayer() {
   layers.meteo.clearLayers();
   const st = S.meteo?.stations || [];
   st.forEach(s => {
-    if (s.lat == null) return;
+    if (s.lat == null || s.lon == null) return;
     L.circleMarker([s.lat, s.lon], {
       radius: 6.5, color: '#0b0e14', weight: 1.5, fillColor: rampThi(s.thi), fillOpacity: .9
     }).bindPopup(`<b>${esc(s.name)}</b><br>t=${esc(s.t ?? '—')}°C · RH=${esc(s.rh ?? '—')}% · ветер ${esc(s.wind ?? '—')} м/с<br>
@@ -478,7 +479,11 @@ document.querySelectorAll('[data-embed]').forEach(b => b.addEventListener('click
 /* ── табы ────────────────────────────────────────────────── */
 
 $('tabs').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
-  $('tabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+  $('tabs').querySelectorAll('button').forEach(x => {
+    const on = x === b;
+    x.classList.toggle('on', on);
+    x.setAttribute('aria-selected', on ? 'true' : 'false'); /* ARIA-паттерн табов — скринридер оповещён о выборе панели */
+  });
   document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane-' + b.dataset.tab));
   if (b.dataset.tab === 'map') { initMap(); setTimeout(() => map?.invalidateSize(), 60); }
   if (b.dataset.tab === 'forecast') buildForecast();
