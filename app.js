@@ -18,11 +18,19 @@ const ST = {};  // {status: 'load'|'ok'|'err', ts: Date}
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[m]));
+/* href-санитайзер: esc() не отсекает схему javascript:, а source_url приходит из
+   скрейпинга внешних сайтов (WAHIS/ФСВПС) — в href пускаем только http(s). */
+const safeUrl = (u) => { const s = String(u ?? ''); return /^https?:\/\//i.test(s) ? s : ''; };
+/* RU-числа (канон витрин): запятая — десятичный разделитель, NBSP-группировка разрядов. */
+const fmtNum = (v, d = 1) => Number.isFinite(v) ? v.toLocaleString('ru-RU', { minimumFractionDigits: d, maximumFractionDigits: d }) : '—';
+/* последний конечный элемент ряда (прогноз/коридоры), иначе null — пустые ряды не роняют рендер. */
+const lastNum = (a) => (Array.isArray(a) && a.length && Number.isFinite(a[a.length - 1])) ? a[a.length - 1] : null;
 const nowMsk = () => new Date().toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' });
-const fmtD = (iso) => { // '2026-10-13' или ISO-штамп → '13.10'
+const fmtD = (iso) => { // '2026-10-13' или ISO-штамп → '13.10'; выход экранируется — дата приходит из чужого JSON
   if (!iso) return '—';
-  const d = iso.slice(0, 10).split('-');
-  return d.length === 3 ? `${d[2]}.${d[1]}` : iso;
+  const s = String(iso);
+  const d = s.slice(0, 10).split('-');
+  return esc(d.length === 3 ? `${d[2]}.${d[1]}` : s);
 };
 const fmtMsk = (iso) => {
   if (!iso) return '—';
@@ -70,6 +78,7 @@ async function loadSource(key) {
     ST[key] = { status: 'err', ts: ST[key]?.ts };
     console.warn('[vethub]', key, e.message);
   }
+  renderChips(); /* итоговый статус сразу после ok/err — чип в шапке окрашивается, а не живёт серым */
 }
 
 async function loadAll() {
@@ -79,7 +88,7 @@ async function loadAll() {
   $('globalUpd').textContent = 'обновлено ' + nowMsk();
   renderOverview();
   if (mapInited) refreshMapLayers();
-  if (fcBuilt) { renderVerdicts(); showSeries(curKey); }
+  if (fcBuilt) buildForecast(); /* race-фикс: панель «Прогноз» могла открыться до данных — перестраиваем по приходу */
 }
 
 /* ── чипы источников в шапке ─────────────────────────────── */
@@ -94,33 +103,49 @@ function renderChips() {
 
 /* ── Сводка ──────────────────────────────────────────────── */
 
-const stub = (id) => `<div class="skeleton">источник недоступен · повторите «обновить»</div>`;
+const stub = () => `<div class="skeleton">источник недоступен · повторите «обновить»</div>`;
 
 function renderOverview() {
-  renderMeteo(); renderAnomaly(); renderBrd(); renderFlu(); renderHeat(); renderFc(); renderRetro(); renderFeed(); renderSrcTable();
+  /* Каждая панель — в своём try: битый источник роняет только свою карточку,
+     остальные живут (README: «деградация без падения»). */
+  const jobs = [
+    ['c-meteo', renderMeteo], ['c-brd', renderBrd], ['c-flu', renderFlu], ['c-heat', renderHeat],
+    ['c-fc', renderFc], ['c-retro', renderRetro], ['c-tsp', renderAnomaly],
+    ['feedBody', renderFeed], ['srcTable', renderSrcTable],
+  ];
+  for (const [id, fn] of jobs) {
+    try { fn(); }
+    catch (e) {
+      console.warn('[vethub]', fn.name, e.message);
+      const el = $(id);
+      if (el && el.innerHTML.includes('загрузка')) el.innerHTML = stub();
+    }
+  }
 }
 
 function renderMeteo() {
   const el = $('c-meteo');
   if (!S.meteo?.stations?.length) { el.innerHTML = `<h3>Метео · Ростовская обл.<span class="src">vet-meteo</span></h3>` + stub(); return; }
-  const st = S.meteo.stations;
-  const mx = st.reduce((a, b) => (b.thi > a.thi ? b : a));
-  const n72 = st.filter(s => s.thi >= 72).length;
-  const tvals = st.map(s => s.t).filter(Number.isFinite);
+  const all = S.meteo.stations;
+  const stq = all.filter(s => Number.isFinite(s?.thi));
+  if (!stq.length) { el.innerHTML = `<h3>Метео · Ростовская обл.<span class="src">vet-meteo</span></h3><div class="sub">нет данных THI в срезе</div>`; return; }
+  const mx = stq.reduce((a, b) => (b.thi > a.thi ? b : a));
+  const n72 = all.filter(s => s?.thi >= 72).length;
+  const tvals = all.map(s => s?.t).filter(Number.isFinite);
   const tmin = tvals.length ? Math.min(...tvals) : null, tmax = tvals.length ? Math.max(...tvals) : null;
   const lv = thiLevel(mx.thi);
   /* CCI: станция с максимальным отклонением от термонейтральной зоны */
-  const stc = st.filter(s => s.cci != null);
+  const stc = all.filter(s => Number.isFinite(s?.cci));
   let cciLine = '';
   if (stc.length) {
     const cciworst = stc.reduce((a, b) => (Math.abs(b.cci - 10) > Math.abs(a.cci - 10) ? b : a));
     const z = cciZone(cciworst.cci);
     const out = stc.filter(s => (s.cci >= 30 || s.cci <= -10)).length;
-    cciLine = `<div class="sub">CCI <b style="color:${rampCci(cciworst.cci)}">${cciworst.cci > 0 ? '+' : ''}${cciworst.cci.toFixed(1)}°C</b> · ${esc(cciworst.name)} <span class="lv ${z.cls}">${z.tx}</span> · вне комфорта: <b>${out}/${stc.length}</b></div>`;
+    cciLine = `<div class="sub">CCI <b style="color:${rampCci(cciworst.cci)}">${cciworst.cci > 0 ? '+' : ''}${fmtNum(cciworst.cci, 1)}°C</b> · ${esc(cciworst.name)} <span class="lv ${z.cls}">${z.tx}</span> · вне комфорта: <b>${out}/${stc.length}</b></div>`;
   }
   el.innerHTML = `<h3>Метео · Ростовская обл.<span class="src">vet-meteo</span></h3>
-    <div class="big">${mx.thi.toFixed(0)} <small>THI max · ${esc(mx.name)}</small></div>
-    <div class="sub">${lv} · станций THI≥72: <b>${n72}/${st.length}</b> · t ${tmin == null ? '—' : tmin.toFixed(0)}…${tmax == null ? '—' : tmax.toFixed(0)}°C</div>
+    <div class="big">${fmtNum(mx.thi, 0)} <small>THI max · ${esc(mx.name)}</small></div>
+    <div class="sub">${lv} · станций THI≥72: <b>${n72}/${all.length}</b> · t ${tmin == null ? '—' : fmtNum(tmin, 0)}–${tmax == null ? '—' : fmtNum(tmax, 0)}°C</div>
     ${cciLine}
     <div class="sub" style="color:var(--faint)">срез ${fmtMsk(S.meteo.generatedAt)} МСК</div>`;
 }
@@ -132,25 +157,26 @@ function renderAnomaly() {
   const wk = S.tsp.week;
   const lvl = wk.verdict === 'аномалия' ? 'alert' : wk.verdict === 'повышенный фон' ? 'watch' : 'ok';
   const dis = Object.entries(S.tsp.week_diseases || {}).slice(0, 3)
-    .map(([k, v]) => `${esc(k)} (${v})`).join(' · ');
+    .map(([k, v]) => `${esc(k)} (${esc(v)})`).join(' · ');
   const top = S.tsp.recent_anomalies_90d?.[0];
+  const win = Array.isArray(wk.window) && wk.window.length >= 2 ? `${fmtD(wk.window[0])}–${fmtD(wk.window[1])}` : '';
   el.innerHTML = `<h3>Аномалия недели · вспышки<span class="src">TSPulse</span></h3>
-    <div class="sub" style="margin:2px 0 6px"><span class="lv ${lvl}">${esc(wk.verdict)}</span> · неделя ${fmtD(wk.window[0])}–${fmtD(wk.window[1])}</div>
+    <div class="sub" style="margin:2px 0 6px"><span class="lv ${lvl}">${esc(wk.verdict)}</span>${win ? ` · неделя ${win}` : ''}</div>
     <div class="sub">${esc(wk.note)}</div>
     ${dis ? `<div class="sub" style="color:var(--faint)">за неделю: ${dis}</div>` : ''}
-    ${top ? `<div class="sub" style="color:var(--faint)">локальный пик 90д: ${fmtD(top.date)} · score ${top.score}</div>` : ''}
+    ${top ? `<div class="sub" style="color:var(--faint)">локальный пик 90д: ${fmtD(top.date)} · score ${fmtNum(top.score, 2)}</div>` : ''}
     <div class="sub" style="color:var(--faint)">шкала 0–1, порог 0.6 · <a href="https://github.com/shray77/vet-pilots/blob/main/tspulse/chart.png" target="_blank" rel="noopener">график</a></div>`;
 }
 
 function renderBrd() {
   const el = $('c-brd');
   if (!S.meteo?.stations?.length) { el.innerHTML = `<h3>Респираторный индекс BRD<span class="src">vet-meteo</span></h3>` + stub(); return; }
-  const st = S.meteo.stations.filter(s => s.brd != null);
+  const st = S.meteo.stations.filter(s => Number.isFinite(s?.brd));
   if (!st.length) { el.innerHTML = `<h3>Респираторный индекс BRD<span class="src">vet-meteo</span></h3><div class="sub">нет данных BRD в срезе</div>`; return; }
   const mx = st.reduce((a, b) => (b.brd > a.brd ? b : a));
   const lv = mx.brd >= 75 ? '<span class="lv alert">триггер ≥75</span>' : mx.brd >= 50 ? '<span class="lv watch">внимание</span>' : '<span class="lv ok">низкий</span>';
   el.innerHTML = `<h3>Респираторный индекс BRD<span class="src">vet-meteo</span></h3>
-    <div class="big">${mx.brd.toFixed(0)} <small>max · ${esc(mx.name)}</small></div>
+    <div class="big">${fmtNum(mx.brd, 0)} <small>max · ${esc(mx.name)}</small></div>
     <div class="sub">${lv} · риск БРД КРС по погоде (ветер, осадки, перепады)</div>`;
 }
 
@@ -170,10 +196,10 @@ function renderFlu() {
       <span class="fwdot" style="background:${esc(fw.color || '#888')}"></span>
       <span class="fwname">${esc(fw.short || fw.label)}</span>
       <span class="fwchan">${esc(chan)}</span>
-      <span class="fwr" style="color:${r != null ? rampR(r) : 'var(--faint)'}">${r ?? '—'}</span></div>`;
+      <span class="fwr" style="color:${r != null ? rampR(r) : 'var(--faint)'}">${esc(r ?? '—')}</span></div>`;
   }).join('');
   el.innerHTML = `<h3>ВПГП · окна риска<span class="src">vetflu-site</span></h3>
-    <div class="sub" style="margin:0 0 6px">R-индекс заноса: <span class="lv ${lvl}">${lvlTx}${al.max_r != null ? ' · max R=' + al.max_r : ''}</span></div>
+    <div class="sub" style="margin:0 0 6px">R-индекс заноса: <span class="lv ${lvl}">${lvlTx}${al.max_r != null ? ' · max R=' + esc(al.max_r) : ''}</span></div>
     ${rows}
     <div class="sub" style="color:var(--faint)">M/C/Z × погода × фон вспышек WAHIS</div>`;
 }
@@ -190,21 +216,22 @@ function renderHeat() {
   const top = Object.entries(byDis).sort((a, b) => b[1] - a[1])[0];
   el.innerHTML = `<h3>Заболевания РФ · хитмап<span class="src">vet-heatmap</span></h3>
     <div class="big">${recent.length} <small>событий за 30 дней</small></div>
-    <div class="sub">активных: <b>${ongoing}</b> · всего в базе: ${S.heat.total_outbreaks}${top ? ` · чаще: ${esc(top[0])} (${top[1]})` : ''}</div>
+    <div class="sub">активных: <b>${ongoing}</b> · всего в базе: ${fmtNum(S.heat.total_outbreaks, 0)}${top ? ` · чаще: ${esc(top[0])} (${top[1]})` : ''}</div>
     <div class="sub" style="color:var(--faint)">WAHIS + ФСВПС · обновлено ${fmtD(S.heat.updated)}</div>`;
 }
 
 function renderFc() {
   const el = $('c-fc');
   const s0 = S.fc?.series?.[0];
-  if (!s0?.forecast) { el.innerHTML = `<h3>Прогноз TimesFM 2.5 · ВПГП<span class="src">vetflu-forecast</span></h3>` + stub(); return; }
-  const h = s0.history.values, f = s0.forecast;
-  const last = h[h.length - 1], p4 = f.point[f.point.length - 1];
+  const f = s0?.forecast;
+  const last = lastNum(s0?.history?.values), p4 = lastNum(f?.point);
+  const q10 = lastNum(f?.q10), q90 = lastNum(f?.q90);
+  if (p4 == null || last == null) { el.innerHTML = `<h3>Прогноз TimesFM 2.5 · ВПГП<span class="src">vetflu-forecast</span></h3>` + stub(); return; }
   const d = last ? (p4 / last - 1) * 100 : null;
-  const arr = d == null ? '—' : d > 2 ? `↗ +${d.toFixed(0)}%` : d < -2 ? `↘ ${d.toFixed(0)}%` : `→ ${d >= 0 ? '+' : ''}${d.toFixed(0)}%`;
+  const arr = d == null ? '—' : d > 2 ? `↗ +${fmtNum(d, 0)}%` : d < -2 ? `↘ ${fmtNum(d, 0)}%` : `→ ${d >= 0 ? '+' : ''}${fmtNum(d, 0)}%`;
   el.innerHTML = `<h3>Прогноз TimesFM 2.5 · ВПГП<span class="src">vetflu-forecast</span></h3>
-    <div class="big">${p4.toFixed(1)} <small>событий/нед к ${fmtD(f.weeks[f.weeks.length - 1])}</small></div>
-    <div class="sub">${arr} к текущему уровню (${last.toFixed(1)}) · коридор q10–q90: ${f.q10[f.q10.length - 1].toFixed(1)}–${f.q90[f.q90.length - 1].toFixed(1)}</div>
+    <div class="big">${fmtNum(p4, 1)} <small>событий/нед к ${fmtD(f.weeks?.[f.weeks?.length - 1])}</small></div>
+    <div class="sub">${arr} к текущему уровню (${fmtNum(last, 1)}) · коридор q10–q90: ${q10 == null ? '—' : fmtNum(q10, 1)}–${q90 == null ? '—' : fmtNum(q90, 1)}</div>
     <div class="sub" style="color:var(--faint)">${esc(S.fc.model?.repo || '')} · ревизия ${esc(S.fc.model?.revision || '')}</div>`;
 }
 
@@ -214,8 +241,8 @@ function renderRetro() {
   const rows = S.retro.panels.map(p => {
     const v = p.verdict || {};
     const good = v.status === 'value', cls = good ? 'ok' : 'watch';
-    const skill = v.skill != null ? (v.skill > 0 ? '+' : '') + (v.skill * 100).toFixed(0) + '% MASE' : '—';
-    return `<div class="vrow"><span class="lbl" title="${esc(p.title)}">${esc(p.label)} · h=${p.h}:</span>
+    const skill = Number.isFinite(v.skill) ? (v.skill > 0 ? '+' : '') + fmtNum(v.skill * 100, 0) + '% MASE' : '—';
+    return `<div class="vrow"><span class="lbl" title="${esc(p.title)}">${esc(p.label)} · h=${esc(p.h)}:</span>
       <span class="lv ${cls}">${good ? 'польза' : 'паритет'} ${skill}</span></div>`;
   }).join('');
   el.innerHTML = `<h3>Ретроспектива модели<span class="src">vetflu-forecast</span></h3>${rows}
@@ -227,10 +254,12 @@ function renderFeed() {
   const obs = S.heat?.outbreaks;
   if (!obs?.length) { el.innerHTML = stub(); $('feedSrc').textContent = ''; return; }
   $('feedSrc').textContent = 'vet-heatmap · ' + fmtD(S.heat.updated);
-  const rows = [...obs].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 8).map(o =>
-    `<tr><td class="d">${fmtD(o.date)}</td><td>${esc(o.disease)}<div style="color:var(--faint);font-size:11.5px">${esc(o.region || '')} · ${esc(o.federal_district || '')}</div></td>
+  const rows = [...obs].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 8).map(o => {
+    const u = safeUrl(o.source_url);
+    return `<tr><td class="d">${fmtD(o.date)}</td><td>${esc(o.disease)}<div style="color:var(--faint);font-size:11.5px">${esc(o.region || '')} · ${esc(o.federal_district || '')}</div></td>
      <td><span class="st ${o.status === 'Ongoing' ? 'on' : 'res'}">${o.status === 'Ongoing' ? 'активна' : 'завершена'}</span></td>
-     <td>${o.source_url ? `<a href="${esc(o.source_url)}" target="_blank" rel="noopener">↗</a>` : ''}</td></tr>`).join('');
+     <td>${u ? `<a href="${esc(u)}" target="_blank" rel="noopener">↗</a>` : ''}</td></tr>`;
+  }).join('');
   el.innerHTML = `<table class="feed"><thead><tr><th>дата</th><th>болезнь · регион</th><th>статус</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
@@ -291,13 +320,14 @@ function updateHeatLayer() {
     if (!o.lat || !o.lon || (o.date || '') < cutoff) return;
     n++;
     const c = colByGroup[o.disease_group] || '#9ca3af';
+    const u = safeUrl(o.source_url);
     const m = L.circleMarker([o.lat, o.lon], {
       radius: 4, color: '#0b0e14', weight: .8, fillColor: c, fillOpacity: o.status === 'Ongoing' ? .95 : .5
     });
-    m.bindPopup(`<b>${esc(o.disease)}</b><br>${esc(o.region || '')} · ${esc(o.federal_district || '')}<br>${fmtD(o.date)} · ${o.status === 'Ongoing' ? '<span class="ph">активна</span>' : 'завершена'}<br>источник: ${esc(o.source || '')}${o.source_url ? ` · <a href="${esc(o.source_url)}" target="_blank" rel="noopener">событие ↗</a>` : ''}`);
+    m.bindPopup(`<b>${esc(o.disease)}</b><br>${esc(o.region || '')} · ${esc(o.federal_district || '')}<br>${fmtD(o.date)} · ${o.status === 'Ongoing' ? '<span class="ph">активна</span>' : 'завершена'}<br>источник: ${esc(o.source || '')}${u ? ` · <a href="${esc(u)}" target="_blank" rel="noopener">событие ↗</a>` : ''}`);
     m.addTo(layers.heat);
   });
-  $('heatCnt').textContent = `показано ${n} из ${obs.length}`;
+  $('heatCnt').textContent = `показано ${n} из ${fmtNum(obs.length, 0)}`;
 }
 
 function updateFluLayer() {
@@ -313,13 +343,13 @@ function updateFluLayer() {
     const nodes = S.flu.nodes?.[fw.id] || [];
     nodes.forEach(nd => {
       if (nd.lat == null) return;
-      const r = nd.r ?? 0;
+      const r = Number.isFinite(nd.r) ? nd.r : 0;
       L.circleMarker([nd.lat, nd.lon], {
         radius: 5 + r / 9, color: '#0b0e14', weight: 1.6,
         fillColor: rampR(r), fillOpacity: .88
       }).bindPopup(`<b>${esc(nd.name)}</b> · ${esc(fw.short || fw.label)}<br>
-        R узла: <b>${nd.r ?? '—'}</b> · ${esc(CHAN[nd.chan] || nd.chan || '')}<br>
-        MW=${nd.mw != null ? nd.mw.toFixed(2) : '—'} · MB=${nd.mb != null ? nd.mb.toFixed(2) : '—'}<br>
+        R узла: <b>${esc(nd.r ?? '—')}</b> · ${esc(CHAN[nd.chan] || nd.chan || '')}<br>
+        MW=${Number.isFinite(nd.mw) ? fmtNum(nd.mw, 2) : '—'} · MB=${Number.isFinite(nd.mb) ? fmtNum(nd.mb, 2) : '—'}<br>
         ${nd.colony ? 'колония · ' : ''}${nd.wintering ? 'зимовка' : ''}`).addTo(layers.flu);
     });
   });
@@ -349,13 +379,13 @@ function renderVerdicts() {
   el.innerHTML = S.retro.panels.map(p => {
     const v = p.verdict || {};
     const good = v.status === 'value';
-    const rows = [...(p.summary || [])].sort((a, b) => a.mase - b.mase).map(r =>
-      `<span style="margin-right:10px;${r.model === 'timesfm' ? 'color:var(--text);font-weight:600' : 'color:var(--muted)'}">${esc(r.model)} ${r.mase.toFixed(3)}</span>`).join('');
+    const rows = [...(p.summary || [])].filter(r => Number.isFinite(r.mase)).sort((a, b) => a.mase - b.mase).map(r =>
+      `<span style="margin-right:10px;${r.model === 'timesfm' ? 'color:var(--text);font-weight:600' : 'color:var(--muted)'}">${esc(r.model)} ${fmtNum(r.mase, 3)}</span>`).join('');
     return `<div class="verdict ${good ? 'good' : 'mid'}">
-      <h4>${esc(p.label)} · h=${p.h} · ${p.n_pairs} пар</h4>
+      <h4>${esc(p.label)} · h=${esc(p.h)} · ${esc(p.n_pairs)} пар</h4>
       <div class="tx">${esc(v.text || '')}</div>
       <div class="mx">${rows}</div>
-      <div class="mx">skill=${v.skill != null ? (v.skill * 100).toFixed(1) + '%' : '—'} · лучший бейзлайн: ${esc(v.best_baseline || '—')}</div>
+      <div class="mx">skill=${Number.isFinite(v.skill) ? fmtNum(v.skill * 100, 1) + '%' : '—'} · лучший бейзлайн: ${esc(v.best_baseline || '—')}</div>
     </div>`;
   }).join('');
 }
@@ -371,16 +401,21 @@ function renderFcBar() {
   }));
 }
 
-const weekShort = (w) => { const e = (w || '').split('/')[1] || w || ''; const p = e.split('-'); return p.length === 3 ? `${p[2]}.${p[1]}` : e; };
+const weekShort = (w) => { const s = String(w || ''); const e = s.split('/')[1] || s; const p = e.split('-'); return esc(p.length === 3 ? `${p[2]}.${p[1]}` : e); };
 
 function showSeries(key) {
   const s = (S.fc?.series || []).find(x => x.key === key) || S.fc?.series?.[0];
   if (!s) return;
   const H = 52;
-  const hv = s.history.values.slice(-H), hw = s.history.weeks.slice(-H);
-  const f = s.forecast;
-  const labels = [...hw.map(weekShort), ...f.weeks.map(weekShort)];
-  const pad = Array(H).fill(null);
+  const hv = (Array.isArray(s.history?.values) ? s.history.values : []).slice(-H);
+  const hw = (Array.isArray(s.history?.weeks) ? s.history.weeks : []).slice(-H);
+  const f = s.forecast || {};
+  const fwk = Array.isArray(f.weeks) ? f.weeks : [];
+  const fp = Array.isArray(f.point) ? f.point : [];
+  const fq10 = Array.isArray(f.q10) ? f.q10 : [];
+  const fq90 = Array.isArray(f.q90) ? f.q90 : [];
+  const labels = [...hw.map(weekShort), ...fwk.map(weekShort)];
+  const pad = Array(hv.length).fill(null); /* прогноз стартует сразу после факта — выравнивание не ломается на короткой истории */
   const c = $('fcChart').getContext('2d');
   if (fcChart) fcChart.destroy();
   fcChart = new Chart(c, {
@@ -388,10 +423,10 @@ function showSeries(key) {
     data: {
       labels,
       datasets: [
-        { label: 'q90', data: [...pad, ...f.q90], borderColor: 'transparent', pointRadius: 0, fill: false },
-        { label: 'q10', data: [...pad, ...f.q10], borderColor: 'transparent', pointRadius: 0, fill: '-1', backgroundColor: 'rgba(251,191,36,.14)' },
+        { label: 'q90', data: [...pad, ...fq90], borderColor: 'transparent', pointRadius: 0, fill: false },
+        { label: 'q10', data: [...pad, ...fq10], borderColor: 'transparent', pointRadius: 0, fill: '-1', backgroundColor: 'rgba(251,191,36,.14)' },
         { label: 'факт', data: hv, borderColor: '#34d399', borderWidth: 2, pointRadius: 0, tension: .3 },
-        { label: 'прогноз', data: [...pad, ...f.point], borderColor: '#fbbf24', borderDash: [5, 4], borderWidth: 2, pointRadius: 2.5, pointBackgroundColor: '#fbbf24' },
+        { label: 'прогноз', data: [...pad, ...fp], borderColor: '#fbbf24', borderDash: [5, 4], borderWidth: 2, pointRadius: 2.5, pointBackgroundColor: '#fbbf24' },
       ]
     },
     options: {
@@ -407,11 +442,14 @@ function showSeries(key) {
       }
     }
   });
-  const last = hv[hv.length - 1];
+  const last = hv.length ? hv[hv.length - 1] : null;
   $('fcTable').innerHTML = `<table class="fct"><thead><tr><th>горизонт</th><th>неделя</th><th>точечный прогноз</th><th>q10–q90</th><th>Δ к текущему</th></tr></thead><tbody>` +
-    f.point.map((p, i) => `<tr><td>+${i + 1} нед</td><td>${esc(weekShort(f.weeks[i]))}</td><td><b>${p.toFixed(2)}</b></td>
-      <td>${f.q10[i].toFixed(2)} – ${f.q90[i].toFixed(2)}</td>
-      <td style="color:${p >= last ? 'var(--warn)' : 'var(--accent)'}">${p >= last ? '+' : ''}${((p / last - 1) * 100).toFixed(0)}%</td></tr>`).join('') +
+    fp.map((p, i) => {
+      const pct = Number.isFinite(p) && Number.isFinite(last) && last > 0 ? (p / last - 1) * 100 : null;
+      return `<tr><td>+${i + 1} нед</td><td>${weekShort(fwk[i])}</td><td><b>${fmtNum(p, 2)}</b></td>
+      <td>${fmtNum(fq10[i], 2)} – ${fmtNum(fq90[i], 2)}</td>
+      <td style="color:${pct == null ? 'var(--faint)' : p >= last ? 'var(--warn)' : 'var(--accent)'}">${pct == null ? '—' : (pct >= 0 ? '+' : '') + fmtNum(pct, 0) + '%'}</td></tr>`;
+    }).join('') +
     `</tbody></table>`;
   $('fcNote').innerHTML = `<b>Как читать:</b> факт — недельные события ВПГП (WOAH WAHIS) · пунктир — точечный прогноз TimesFM 2.5 · плашка — квантильный коридор q10–q90.
     Модель крутится в отдельном воркере <a href="https://github.com/shray77/vetflu-forecast" target="_blank" rel="noopener">vetflu-forecast</a> (GitHub Actions, CPU, веса в кэше), пересчёт — понедельник 06:00 UTC.
@@ -419,9 +457,10 @@ function showSeries(key) {
 }
 
 function buildForecast() {
+  fcBuilt = true; /* панель открывалась — loadAll перестроит её по приходу данных (race-фикс) */
+  renderVerdicts();
   if (!S.fc) { $('fcBar').innerHTML = ''; $('fcNote').textContent = 'Источник прогноза недоступен — повторите «обновить».'; return; }
-  fcBuilt = true;
-  renderVerdicts(); renderFcBar(); showSeries(curKey);
+  renderFcBar(); showSeries(curKey);
 }
 
 /* ── Инструменты ─────────────────────────────────────────── */
