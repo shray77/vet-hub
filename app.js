@@ -484,6 +484,9 @@ $('tabs').querySelectorAll('button').forEach(b => b.addEventListener('click', ()
     x.classList.toggle('on', on);
     x.setAttribute('aria-selected', on ? 'true' : 'false'); /* ARIA-паттерн табов — скринридер оповещён о выборе панели */
   });
+  /* Task 195: активный таб — в кадре: ряд табов на телефоне скроллится,
+     «Инструменты» за краем — без доворота не видно, что выбралось */
+  b.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane-' + b.dataset.tab));
   if (b.dataset.tab === 'map') { initMap(); setTimeout(() => map?.invalidateSize(), 60); }
   if (b.dataset.tab === 'forecast') buildForecast();
