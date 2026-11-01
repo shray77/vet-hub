@@ -8,7 +8,7 @@ const RAW = 'https://raw.githubusercontent.com/shray77/';
 const SOURCES = {
   meteo: { url: RAW   + 'vet-meteo/main/data/latest.json',          label: 'Метео' },
   flu:   { url: PAGES + 'vetflu-site/data/model.json',              label: 'ВПГП' },
-  heat:  { url: PAGES + 'vet-heatmap/data/outbreaks.json',          label: 'Хитмап' },
+  heat:  { url: PAGES + 'vet-heatmap/data/outbreaks.json',          label: 'ВетКарта' },
   fc:    { url: PAGES + 'vetflu-forecast/data/forecast.json',       label: 'TimesFM' },
   retro: { url: PAGES + 'vetflu-forecast/data/retrospective.json',  label: 'Ретро' },
   tsp:   { url: RAW   + 'vet-pilots/main/tspulse/latest.json',       label: 'Аномалия' },
@@ -60,6 +60,16 @@ const cciZone = (v) => v == null ? null :
 const rampCci = (v) => v >= 40 ? '#f87171' : v >= 30 ? '#fb923c' : v <= -30 ? '#60a5fa' : v <= -10 ? '#93c5fd' : '#34d399';
 const CHAN = { transit: 'M·транзит', colonial: 'C·колонии', wintering: 'Z·зимовки' };
 
+/* ── тема (аудит Б1): канва не понимает var(--token) — читаем вычисленные цвета
+   текущей темы на момент сборки графика; смена темы → событие vetds-theme от тоггла
+   (index.html) → пересборка. hexA — полупрозрачная производная hex-токена (коридор q10–q90). ── */
+const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const hexA = (hex, a) => {
+  const s = String(hex).replace('#', '');
+  const n = parseInt(s.length === 3 ? s.split('').map(x => x + x).join('') : s, 16);
+  return Number.isFinite(n) ? `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})` : `rgba(128,128,128,${a})`;
+};
+
 /* ── загрузка ─────────────────────────────────────────────── */
 
 async function loadSource(key) {
@@ -94,10 +104,11 @@ async function loadAll() {
 /* ── чипы источников в шапке ─────────────────────────────── */
 
 function renderChips() {
+  const RU = { load: 'загрузка…', ok: 'данные свежие', err: 'нет связи' }; /* аудит П4: статус-код — для логов, тултип — по-русски */
   $('srcChips').innerHTML = Object.keys(SOURCES).map(k => {
     const st = ST[k]?.status || 'load';
     const cls = st === 'ok' ? 'ok' : st === 'err' ? 'err' : '';
-    return `<span class="chip ${cls}" title="${esc(SOURCES[k].label)}: ${st}"><span class="dot"></span>${esc(SOURCES[k].label)}</span>`;
+    return `<span class="chip ${cls}" title="${esc(SOURCES[k].label)}: ${esc(RU[st] || st)}"><span class="dot"></span>${esc(SOURCES[k].label)}</span>`;
   }).join('');
 }
 
@@ -113,12 +124,19 @@ function renderOverview() {
     ['c-fc', renderFc], ['c-retro', renderRetro], ['c-tsp', renderAnomaly],
     ['feedBody', renderFeed], ['srcTable', renderSrcTable],
   ];
+  const CARD_SRC = { 'c-meteo': 'meteo', 'c-brd': 'meteo', 'c-flu': 'flu', 'c-heat': 'heat', 'c-fc': 'fc', 'c-retro': 'retro', 'c-tsp': 'tsp', 'feedBody': 'heat' };
   for (const [id, fn] of jobs) {
     try { fn(); }
     catch (e) {
       console.warn('[vethub]', fn.name, e.message);
       const el = $(id);
       if (el && el.innerHTML.includes('загрузка')) el.innerHTML = stub();
+    }
+    /* аудит Ш3: источник упал, но старая копия отрисована — честная пометка в самой карточке */
+    const src = CARD_SRC[id];
+    if (src && ST[src]?.status === 'err' && S[src] != null) {
+      const el = $(id);
+      if (el && !el.querySelector('.stale')) el.insertAdjacentHTML('beforeend', '<div class="sub stale" style="color:var(--warn)">⚠ данные могли устареть — источник недоступен при последнем обновлении</div>');
     }
   }
 }
@@ -240,10 +258,12 @@ function renderRetro() {
   if (!S.retro?.panels?.length) { el.innerHTML = `<h3>Ретроспектива модели<span class="src">vetflu-forecast</span></h3>` + stub(); return; }
   const rows = S.retro.panels.map(p => {
     const v = p.verdict || {};
-    const good = v.status === 'value', cls = good ? 'ok' : 'watch';
+    /* аудит Б2: три статуса источника — три подписи (словарь как в витрине-источнике
+       vetflu-forecast: STATUS value/parity/no_value); число — skill из JSON, не выдумка */
+    const m = { value: ['ok', 'польза'], parity: ['watch', 'паритет'], no_value: ['alert', 'TimesFM избыточен'] }[v.status] || ['na', v.status || '—'];
     const skill = Number.isFinite(v.skill) ? (v.skill > 0 ? '+' : '') + fmtNum(v.skill * 100, 0) + '% MASE' : '—';
     return `<div class="vrow"><span class="lbl" title="${esc(p.title)}">${esc(p.label)} · h=${esc(p.h)}:</span>
-      <span class="lv ${cls}">${good ? 'польза' : 'паритет'} ${skill}</span></div>`;
+      <span class="lv ${m[0]}">${esc(m[1])} ${skill}</span></div>`;
   }).join('');
   el.innerHTML = `<h3>Ретроспектива модели<span class="src">vetflu-forecast</span></h3>${rows}
     <div class="sub" style="color:var(--faint)">rolling-origin против бейзлайнов · честный вердикт: на M4 польза есть, на сырых счётчиках — паритет</div>`;
@@ -256,7 +276,7 @@ function renderFeed() {
   $('feedSrc').textContent = 'vet-heatmap · ' + fmtD(S.heat.updated);
   const rows = [...obs].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 8).map(o => {
     const u = safeUrl(o.source_url);
-    return `<tr><td class="d">${fmtD(o.date)}</td><td>${esc(o.disease)}<div style="color:var(--faint);font-size:11.5px">${esc(o.region || '')} · ${esc(o.federal_district || '')}</div></td>
+    return `<tr><td class="d">${fmtD(o.date)}</td><td>${esc(o.disease)}<div style="color:var(--faint);font-size:12px">${esc(o.region || '')} · ${esc(o.federal_district || '')}</div></td>
      <td><span class="st ${o.status === 'Ongoing' ? 'on' : 'res'}">${o.status === 'Ongoing' ? 'активна' : 'завершена'}</span></td>
      <td>${u ? `<a href="${esc(u)}" target="_blank" rel="noopener">↗</a>` : ''}</td></tr>`;
   }).join('');
@@ -271,7 +291,7 @@ function renderSrcTable() {
     const ts = st.status === 'ok' ? fmtMsk(st.ts?.toISOString?.()) : st.status === 'err' ? 'нет связи' : '…';
     return `<div class="vrow"><span class="lbl">${esc(SOURCES[k].label)}</span>
       <span style="margin-left:auto"><span class="dot" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${dot}"></span></span>
-      <span class="val" style="color:var(--faint);font-size:11.5px">${ts}</span></div>`;
+      <span class="val" style="color:var(--faint);font-size:12px">${ts}</span></div>`;
   }).join('') + `<div class="sub" style="color:var(--faint);margin-top:8px">автообновление каждые 5 минут · timeout 20 c</div>`;
 }
 
@@ -296,8 +316,11 @@ function initMap() {
   layers.meteo = L.layerGroup().addTo(map);
   [['lyHeat', 'heat'], ['lyFlu', 'flu'], ['lyMeteo', 'meteo']].forEach(([id, key]) => {
     $(id).addEventListener('change', e => {
-      if (e.target.checked) { refreshMapLayers(); map.addLayer(layers[key]); }
+      if (e.target.checked) map.addLayer(layers[key]);
       else map.removeLayer(layers[key]);
+      /* аудит Б3: пересчёт ПОСЛЕ смены видимости — раньше при снятии счётчик протухал,
+         при включении refresh бежал до addLayer и счётчик оставался пустым */
+      refreshMapLayers();
     });
   });
   $('heatPeriod').addEventListener('change', refreshMapLayers);
@@ -315,6 +338,7 @@ function updateHeatLayer() {
   const days = +$('heatPeriod').value;
   const cutoff = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
   const colByGroup = { Birds: '#f87171', Ruminant: '#93c5fd', Swine: '#f472b6' };
+  const rHeat = L.Browser.mobile ? 7 : 4; /* аудит П2: тач-цель вспышек — палец в кружок 8px не попадает */
   let n = 0;
   [...obs].sort((a, b) => (a.date || '').localeCompare(b.date || '')).forEach(o => {
     if (o.lat == null || o.lon == null || (o.date || '') < cutoff) return; /* симметричный гвард: нулевая широта валидна, Leaflet не получает undefined */
@@ -322,13 +346,15 @@ function updateHeatLayer() {
     const c = colByGroup[o.disease_group] || '#9ca3af';
     const u = safeUrl(o.source_url);
     const m = L.circleMarker([o.lat, o.lon], {
-      radius: 4, color: '#0b0e14', weight: .8, fillColor: c, fillOpacity: o.status === 'Ongoing' ? .95 : .5
+      radius: rHeat, color: '#0b0e14', weight: .8, fillColor: c, fillOpacity: o.status === 'Ongoing' ? .95 : .5
     });
     m.bindPopup(`<b>${esc(o.disease)}</b><br>${esc(o.region || '')} · ${esc(o.federal_district || '')}<br>${fmtD(o.date)} · ${o.status === 'Ongoing' ? '<span class="ph">активна</span>' : 'завершена'}<br>источник: ${esc(o.source || '')}${u ? ` · <a href="${esc(u)}" target="_blank" rel="noopener">событие ↗</a>` : ''}`);
     m.addTo(layers.heat);
   });
-  /* счётчик имеет смысл только при видимом слое вспышек (снятый чекбокс — не врём «показано») */
-  $('heatCnt').textContent = map.hasLayer(layers.heat) ? `показано ${n} из ${fmtNum(obs.length, 0)}` : '';
+  /* счётчик имеет смысл только при видимом слое вспышек (снятый чекбокс — не врём «показано»);
+     знаменатель — события с координатами: без них маркер не показать никогда (аудит З3) */
+  const mappable = obs.filter(o => o.lat != null && o.lon != null).length;
+  $('heatCnt').textContent = map.hasLayer(layers.heat) ? `показано ${n} из ${fmtNum(mappable, 0)}` : '';
 }
 
 function updateFluLayer() {
@@ -417,6 +443,9 @@ function showSeries(key) {
   const fq90 = Array.isArray(f.q90) ? f.q90 : [];
   const labels = [...hw.map(weekShort), ...fwk.map(weekShort)];
   const pad = Array(hv.length).fill(null); /* прогноз стартует сразу после факта — выравнивание не ломается на короткой истории */
+  /* аудит Б1: цвета — из токенов темы на момент сборки (факт — --ds-green, прогноз/коридор — --warn,
+     тики — --faint/--muted, сетка --border); тёмная тема больше не единственная, где график читается */
+  const th = { faint: cssVar('--faint'), muted: cssVar('--muted'), grid: cssVar('--border'), fact: cssVar('--ds-green'), fc: cssVar('--warn') };
   const c = $('fcChart').getContext('2d');
   if (fcChart) fcChart.destroy();
   fcChart = new Chart(c, {
@@ -425,9 +454,9 @@ function showSeries(key) {
       labels,
       datasets: [
         { label: 'q90', data: [...pad, ...fq90], borderColor: 'transparent', pointRadius: 0, fill: false },
-        { label: 'q10', data: [...pad, ...fq10], borderColor: 'transparent', pointRadius: 0, fill: '-1', backgroundColor: 'rgba(251,191,36,.14)' },
-        { label: 'факт', data: hv, borderColor: '#34d399', borderWidth: 2, pointRadius: 0, tension: .3 },
-        { label: 'прогноз', data: [...pad, ...fp], borderColor: '#fbbf24', borderDash: [5, 4], borderWidth: 2, pointRadius: 2.5, pointBackgroundColor: '#fbbf24' },
+        { label: 'q10', data: [...pad, ...fq10], borderColor: 'transparent', pointRadius: 0, fill: '-1', backgroundColor: hexA(th.fc, .14) },
+        { label: 'факт', data: hv, borderColor: th.fact, borderWidth: 2, pointRadius: 0, tension: .3 },
+        { label: 'прогноз', data: [...pad, ...fp], borderColor: th.fc, borderDash: [5, 4], borderWidth: 2, pointRadius: 2.5, pointBackgroundColor: th.fc },
       ]
     },
     options: {
@@ -438,8 +467,8 @@ function showSeries(key) {
         tooltip: { callbacks: { title: it => 'нед. ' + it[0].label } }
       },
       scales: {
-        x: { ticks: { color: '#7e8899', maxTicksLimit: 11, font: { size: 10 } }, grid: { color: 'rgba(255,255,255,.045)' } },
-        y: { ticks: { color: '#93a0b4', font: { size: 11 } }, grid: { color: 'rgba(255,255,255,.045)' } }
+        x: { ticks: { color: th.faint, maxTicksLimit: 11, font: { size: 11 } }, grid: { color: th.grid } },
+        y: { ticks: { color: th.muted, font: { size: 11 } }, grid: { color: th.grid } }
       }
     }
   });
@@ -463,6 +492,10 @@ function buildForecast() {
   if (!S.fc) { $('fcBar').innerHTML = ''; $('fcNote').textContent = 'Источник прогноза недоступен — повторите «обновить».'; return; }
   renderFcBar(); showSeries(curKey);
 }
+
+/* аудит Б1: тоггл темы стреляет vetds-theme уже ПОСЛЕ смены data-theme — пересобираем
+   график с новыми токенами (панель не открыта/нет данных — ранний выход внутри showSeries). */
+document.documentElement.addEventListener('vetds-theme', () => { if (fcBuilt) showSeries(curKey); });
 
 /* ── Инструменты ─────────────────────────────────────────── */
 
@@ -488,9 +521,20 @@ $('tabs').querySelectorAll('button').forEach(b => b.addEventListener('click', ()
      «Инструменты» за краем — без доворота не видно, что выбралось */
   b.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane-' + b.dataset.tab));
+  try { history.replaceState(null, '', '#pane-' + b.dataset.tab); } catch (e) {} /* аудит Ш1: hash — F5 и deep-link возвращают на таб */
   if (b.dataset.tab === 'map') { initMap(); setTimeout(() => map?.invalidateSize(), 60); }
   if (b.dataset.tab === 'forecast') buildForecast();
 }));
+
+/* аудит Ш1: вход по #pane-<таб> и «назад/вперёд»; мусорный hash (#pane-map?foo=…<b>x</b>) игнорируется */
+function applyTabHash() {
+  const m = /^#pane-([a-z]+)$/.exec(location.hash);
+  if (!m) return;
+  const btn = document.querySelector('#tabs button[data-tab="' + m[1] + '"]');
+  if (btn && btn.getAttribute('aria-selected') !== 'true') btn.click();
+}
+window.addEventListener('hashchange', applyTabHash);
+applyTabHash();
 
 /* ── старт ───────────────────────────────────────────────── */
 

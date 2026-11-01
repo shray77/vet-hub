@@ -73,13 +73,14 @@
 
   main { max-width: 1280px; margin: 0 auto; padding: 14px 18px 30px; }
   .pane { display: none; } .pane.on { display: block; }
-  .note { color: var(--faint); font: 12px var(--mono); margin: 4px 0 12px; }
+  .note { color: var(--faint); font: 12px var(--mono); margin: 4px 0 12px; max-width: 920px; } /* П1: длинная mono-строка не бежит в бесконечную строку */
 
   /* ── Сводка ── */
   .kgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--ds-radius); padding: 14px 16px; min-width: 0; }
   .card h3 { margin: 0 0 8px; font-size: 11.5px; text-transform: uppercase; letter-spacing: .09em; color: var(--faint); display: flex; align-items: center; gap: 8px; }
-  .card h3 .src { margin-left: auto; font: 10.5px var(--mono); color: var(--faint); text-transform: none; letter-spacing: 0; }
+  /* Task 223 (бэклог «мелкий текст хабов»): пол шрифтов витрины — 11px, ниже не опускаемся */
+  .card h3 .src { margin-left: auto; font: 11px var(--mono); color: var(--faint); text-transform: none; letter-spacing: 0; }
   .big { font: 600 30px/1.1 var(--mono); letter-spacing: -.02em; }
   .big small { font-size: 14px; color: var(--muted); font-weight: 400; }
   .sub { color: var(--muted); font-size: 12.5px; margin-top: 5px; }
@@ -95,25 +96,29 @@
   .fwdot { width: 9px; height: 9px; border-radius: 3px; flex: none; }
   .fwname { color: var(--muted); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .fwr { font: 600 15px var(--mono); }
-  .fwchan { font: 10.5px var(--mono); color: var(--faint); border: 1px solid var(--border); border-radius: var(--ds-radius-s); padding: 1px 6px; }
+  .fwchan { font: 11px var(--mono); color: var(--faint); border: 1px solid var(--border); border-radius: var(--ds-radius-s); padding: 1px 6px; }
   .vrow { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; font-size: 12.5px; border-top: 1px dashed var(--border); }
   .vrow:first-of-type { border-top: none; }
   .vrow .lbl { color: var(--muted); }
   .vrow .val { font-family: var(--mono); }
   .twocol { display: grid; grid-template-columns: 1fr 380px; gap: 12px; margin-top: 12px; align-items: start; }
   table.feed { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-  table.feed th { text-align: left; color: var(--faint); font: 600 10.5px var(--mono); text-transform: uppercase; letter-spacing: .07em; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  table.feed th { text-align: left; color: var(--faint); font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: .07em; padding: 6px 8px; border-bottom: 1px solid var(--border); }
   table.feed td { padding: 6.5px 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); vertical-align: top; }
   table.feed td.d { font-family: var(--mono); white-space: nowrap; color: var(--muted); }
   table.feed tr:hover td { background: color-mix(in srgb, var(--surface2) 60%, transparent); }
   /* тач-зона ↗-ссылки источника: визуально та же стрелка, попадание пальцем — ~27px */
   table.feed td a[target="_blank"] { display: inline-block; padding: 7px 8px; margin: -7px -4px; border-radius: var(--ds-radius-s); }
   table.feed td a[target="_blank"]:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
-  .st { border-radius: var(--ds-radius-s); padding: 1px 7px; font: 10.5px var(--mono); white-space: nowrap; }
+  .st { border-radius: var(--ds-radius-s); padding: 1px 7px; font: 11px var(--mono); white-space: nowrap; }
   .st.on { background: color-mix(in srgb, var(--red) 15%, transparent); color: var(--err); }
   .st.res { background: var(--surface2); color: var(--faint); }
   .skeleton { color: var(--faint); font: 12px var(--mono); padding: 10px 2px; animation: pulse 1.2s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: .45; } }
+  @media (prefers-reduced-motion: reduce) { /* аудит П3: ДС глушит моушн — витрина не анимирует мимо (WCAG 2.3.3) */
+    .skeleton, #refreshBtn.spin { animation: none; }
+    html { scroll-behavior: auto; }
+  }
 
   /* ── Карта ── */
   .mapbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 9px; font-size: 12.5px; color: var(--muted); }
@@ -145,7 +150,7 @@
   .fcwrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--ds-radius); padding: 14px; height: 380px; position: relative; }
   #fcChart { width: 100% !important; height: 100% !important; }
   table.fct { width: 100%; border-collapse: collapse; font: 12.5px var(--mono); margin-top: 12px; }
-  table.fct th { text-align: left; color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; padding: 6px 8px; border-bottom: 1px solid var(--border); font-family: inherit; }
+  table.fct th { text-align: left; color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .07em; padding: 6px 8px; border-bottom: 1px solid var(--border); font-family: inherit; }
   table.fct td { padding: 6.5px 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
   .fcnote { color: var(--faint); font-size: 12px; margin-top: 12px; }
   .fcnote b { color: var(--muted); }
@@ -188,10 +193,21 @@
     /* тач-таргеты ≥48px (полевой канон Task 176): «открыть ↗», «предпросмотр», «repo» — десктоп не трогаем */
     .tool .btns a, .tool .btns button, .tool h3 a.lv { min-height: 48px; display: inline-flex; align-items: center; }
   }
+  @media (max-height: 480px) {
+    /* ландшафт телефона (аудит Ш2): sticky-шапка съедала 45% высоты (169px при экране 375px) —
+       открепляем от верха и компактим: чипы одним скроллящимся рядом, саб бренда скрыт */
+    header.top { position: static; }
+    .brand p { display: none; }
+    .trow { padding: 6px 12px; }
+    .srcs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; max-width: 100%; }
+    .srcs::-webkit-scrollbar { display: none; }
+    .srcs > * { flex: none; white-space: nowrap; }
+  }
 </style>
 <style>/* vet-ds v2.1: тоггл темы с подписью — виден среди метаданных */
   .theme-pill { min-height: 34px; padding: 0 13px; font: 500 12px var(--ds-font-mono); }
   .theme-pill svg { color: var(--ds-accent); }
+  @media (max-width: 620px) { .theme-pill, #refreshBtn { min-height: 44px; } } /* аудит П2: тач-цель кнопок шапки — было 34/37 */
 </style>
 </head>
 <body>
@@ -364,7 +380,7 @@
 
 <script src="vendor/leaflet.js"></script>
 <script src="vendor/chart.umd.min.js"></script>
-<script src="app.js?v=20261030"></script>
+<script src="app.js?v=20261101"></script>
 <script>
 (function(){
   var root = document.documentElement, key = "vetds-theme";
